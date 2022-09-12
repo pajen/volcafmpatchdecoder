@@ -5,7 +5,8 @@ transcodes wav files of volca fm patches to MIDI Sysex
 Extract executables from zip file and use the one appropriate for your OS
 
 # Usage
-`volcafm_to_sysex.exe WAVFILE.WAV`
+This is a command line application. It reads a wav file and creates an output file with a .syx file ending appended.
+`./volcafm_to_sysex.exe WAVFILE.WAV`
 The wav file needs to be mono 44100kHz 16bit.
 
 ```
@@ -18,30 +19,12 @@ MINIMOOG
 Twin Pad
 amuseum
 ChewyBass
-MusicBox
-Dub Bass
-Fake Piano
-ShortCut
-WarmBass
-Syringe
-TenVoice
-KENJO-JI 1
-StringsEns
-Xylophone
-"SF-Org" 3
-Solid Bass
-STEEL DRUM
-Steel Movi
-Strings
-Marimba
-E.Clique2\
-GRDVLN.2-D
-Glocken
-Wood Bad
-Fantasia5b
-Voices 2
+...
 LUCRETIA
 Myrid
 FlyKettle
 ARP 2600
 ```
+# Compiling from source
+`cc main.c`
+
