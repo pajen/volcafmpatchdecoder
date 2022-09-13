@@ -27,4 +27,4 @@ ARP 2600
 ```
 # Compiling from source
 `cc main.c`
-
+if you long for a slimmed down 90's IDE for windows, try Pelles C: http://www.smorgasbordet.com/pellesc/
