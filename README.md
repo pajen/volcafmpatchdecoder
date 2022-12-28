@@ -1,5 +1,5 @@
 # volcafmpatchdecoder
-transcodes wav files of volca fm patches to MIDI Sysex
+transcodes wav files of volca fm patches to MIDI Sysex. Creates two sysex files when input is a 64-patch dump from Volca FM2.
 
 # Installation
 Extract executables from zip file and use the one appropriate for your OS
