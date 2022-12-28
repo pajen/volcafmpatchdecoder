@@ -9,23 +9,24 @@
  *                                                                          *
  ****************************************************************************/
 
+// includes
+
 #include <stdio.h>
-
-/****************************************************************************
- *                                                                          *
- * Function: main                                                           *
- *                                                                          *
- * Purpose : Main entry point.                                              *
- *                                                                          *
- * History : Date      Reason                                               *
- *           00/00/00  Created                                              *
- *                                                                          *
- ****************************************************************************/
-
 #include "stdlib.h"
 #include "stdio.h"
 #include "string.h"
 #include "stdint.h"
+
+// defines
+
+#define BUFFER_SIZE 0x4000
+#define COUNT_THRESHOLD 15
+#define SIGN (1)
+#define AMP_MINIMUM 4096
+#define TXHEADER_STR	 "KORG SYSTEM FILE"
+#define TXHEADER_STR_LEN 16
+
+//structs
 
 struct wav_header
 {
@@ -51,8 +52,6 @@ struct fw_block
   short         bytes;
 };
 
-#define TXHEADER_STR	 "KORG SYSTEM FILE"
-#define TXHEADER_STR_LEN 16
 
 struct tx_header
 {
@@ -66,7 +65,9 @@ struct tx_header
   uint16_t      m_Speed;
 };
 
-unsigned short crc16_table[] = {	0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50a5, 0x60c6, 0x70e7, 
+// constants
+
+unsigned short const crc16_table[] = {	0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50a5, 0x60c6, 0x70e7, 
 	0x8108, 0x9129, 0xa14a, 0xb16b, 0xc18c, 0xd1ad, 0xe1ce, 0xf1ef, 
 	0x1231, 0x0210, 0x3273, 0x2252, 0x52b5, 0x4294, 0x72f7, 0x62d6, 
 	0x9339, 0x8318, 0xb37b, 0xa35a, 0xd3bd, 0xc39c, 0xf3ff, 0xe3de, 
@@ -99,6 +100,24 @@ unsigned short crc16_table[] = {	0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50a5,
 	0xef1f, 0xff3e, 0xcf5d, 0xdf7c, 0xaf9b, 0xbfba, 0x8fd9, 0x9ff8, 
 	0x6e17, 0x7e36, 0x4e55, 0x5e74, 0x2e93, 0x3eb2, 0x0ed1, 0x1ef0 };
 
+
+const char op_byte[] = {   0,   1,   2,   3,   4,   5,   6,   7,   8,   9,  10,  11,  11,  12,  13,  13,  14,  15,  15,  16,  12};   
+const char op_bits[] = {   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,0x02,0x22,0x03,0x02,0x23,   7,0x01,0x15,   7,0x34};
+const unsigned char par_byte[]= { 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 111, 112, 113, 114, 115, 116, 116, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127};
+const unsigned char par_bits[]= {   7,   7,   7,   7,   7,   7,   7,   7,   5,0x03,0x31,   7,   7,   7,   7,0x01,0x13,0x43,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7};
+
+// variables
+
+int DEBUG;
+unsigned char SYSEX_HEADER_155[] = {0xf0, 0x43, 0x00, 0x00, 0x01, 0x1b};
+unsigned char SYSEX_HEADER_4096[] = {0xf0, 0x43, 0x00, 0x09, 0x20, 0x00};
+unsigned char SYSEX_FOOTER[] = {0xf7};
+char buffer[BUFFER_SIZE];
+unsigned char  * res;
+short * samples;
+
+// functions
+
 unsigned short crc16(unsigned char * buf, int len)
 { 
   unsigned short crc = 0xffff;
@@ -108,15 +127,6 @@ unsigned short crc16(unsigned char * buf, int len)
   return crc;  
 }
 
-const char op_byte[] = {   0,   1,   2,   3,   4,   5,   6,   7,   8,   9,  10,  11,  11,  12,  13,  13,  14,  15,  15,  16,  12};   
-const char op_bits[] = {   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,0x02,0x22,0x03,0x02,0x23,   7,0x01,0x15,   7,0x34};
-//FIXED OPERATOR LEVEL BUG MAR 22 !
-
-const unsigned char par_byte[]= { 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 111, 112, 113, 114, 115, 116, 116, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127};
-const unsigned char par_bits[]= {   7,   7,   7,   7,   7,   7,   7,   7,   5,0x03,0x31,   7,   7,   7,   7,0x01,0x13,0x43,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7};
-
-int DEBUG;
-
 
 void set_bits(unsigned char *addr, int val, int bits)
 {
@@ -124,14 +134,15 @@ void set_bits(unsigned char *addr, int val, int bits)
 
   mask = ( 0x7f >> (7 - (bits&7)));
   shifted_mask = mask << (bits >> 4) ;
+  
   *addr = (*addr & (~shifted_mask)) | ((val & mask)<<(bits >> 4));
- 
 } 
 
 unsigned char get_bits(unsigned char *addr, char bits)
 {
   unsigned char mask, shifted_mask;
- mask = ( 0x7f >> (7 - (bits&7)));
+
+  mask = ( 0x7f >> (7 - (bits&7)));
   shifted_mask = mask << (bits >> 4) ;
   return (*addr & shifted_mask) >> ( bits>>4);
 } 
@@ -154,35 +165,21 @@ void convert_127_to_155( unsigned char *dst, unsigned char *src)
    
 }
 
-unsigned char SYSEX_HEADER_155[] = {0xf0, 0x43, 0x00, 0x00, 0x01, 0x1b};
-unsigned char SYSEX_HEADER_4096[] = {0xf0, 0x43, 0x00, 0x09, 0x20, 0x00};
-unsigned char SYSEX_FOOTER[] = {0xf7};
 
-
-void export_sysex_155(FILE * outfile, char * buf)
+void export_sysex_155(FILE * outfile, unsigned char * buf)
 {
   int i;
   char sum;
 
   fwrite(SYSEX_HEADER_155, sizeof(SYSEX_HEADER_155), 1, outfile);
   fwrite(buf, 155, 1, outfile);
-  for (sum=0, i=0; i<155; i++){
+  for (sum=0, i=0; i<155; i++)
     sum+= buf[i];
-  }
-  sum = (128 - (sum & 0x7f));
+  sum = (128 - (sum &0x7f));
   fwrite(&sum, 1, 1, outfile);
   fwrite(SYSEX_FOOTER, sizeof(SYSEX_FOOTER), 1, outfile);
   
 }
-
-#define BUFFER_SIZE 0x4000
-#define COUNT_THRESHOLD 15
-#define SIGN (1)
-#define AMP_MINIMUM 4096
-
-char buffer[BUFFER_SIZE];
-unsigned char  * res;
-short * samples;
 
 
 int decode_preamble( FILE * infile)
@@ -199,8 +196,9 @@ int decode_preamble( FILE * infile)
   {
     if( !fread(&new_s, sizeof(short), 1, infile) )
       { 
-        printf("File end error\n");
-        exit(-1);
+        return -1;  
+      //printf("File end error\n");
+      //  exit(-1);
       }
        
     if ( s*SIGN < 0 && new_s*SIGN >= 0 && amplitude_ok)
@@ -223,7 +221,7 @@ int decode_preamble( FILE * infile)
       }
     s = new_s;
   }
-  return 1;
+  return -1;
 }
 
 
@@ -244,8 +242,7 @@ int decode(unsigned char * result, int len, FILE * infile)
   {
     if( !fread(&new_s, sizeof(short), 1, infile) )
       { 
-        printf("File end error\n");
-        exit(-1);
+        return 0;
       }
     if ( s*SIGN < 0 && new_s*SIGN >= 0 && amplitude_min && amplitude_max )
       {
@@ -254,9 +251,10 @@ int decode(unsigned char * result, int len, FILE * infile)
           if ( count < COUNT_THRESHOLD)
             word |= 1 << 31;
           if ((count<8) || (count>20))
-              printf("Weird signal shape:%d ,%d \n", count, (ftell(infile) - sizeof( struct wav_header ))/2);
+              printf("signal problem: C:%d ,%d \n", count, (ftell(infile) - sizeof( struct wav_header ))/2);
 
-          if (bits == 8) {
+          if (bits == 8)
+          {
             result[r++] = word >> 24;
             bits = 0;
           }  
@@ -281,10 +279,10 @@ int decode(unsigned char * result, int len, FILE * infile)
 
 void printhex(unsigned char *r, int len)
 {
-  int i;
+  int i; 
   for (i=0; i < len; i++)
   {
-      if (i && !(i%16))
+      if ((i) && !(i%16))
         printf("\n");
       printf("%02x ", r[i]);
   } 
@@ -312,19 +310,19 @@ int main(int argc, char *argv[])
   int fa, frames;
   int sample_i;
   FILE * infile, * outfile;
-  char fname[100];
+  char fname[1000];
   char *p;
-  char sysex_155[156];
+  unsigned char sysex_155[156];
   unsigned short crc;
-
   struct wav_header * wh;
 
-  printf( "Volca Decode Sysex\n" );
   if( argc < 2 )
   {
+    printf( "Volca Decode Sysex\n" );
     printf( "Usage: %s wav_file(s)\n", argv[0] );
     exit( -1 );
   }
+  
   for( fa = 1; fa < argc; fa++ )
   {
     strcpy( fname, argv[fa] );
@@ -373,9 +371,10 @@ int main(int argc, char *argv[])
         
         {
           sample_i = 0;
-          decode_preamble( infile );
-          
-          
+          if (decode_preamble( infile )) {
+              printf("Error reading preamble!\n");
+              exit(1);
+            }
           assert_sequence("\xa9" ,1, infile, "Frame start(a9)");  
           assert_sequence(TXHEADER_STR ,TXHEADER_STR_LEN, infile, "Frame KORG Header");  
           decode(res,  33, infile);
@@ -383,22 +382,26 @@ int main(int argc, char *argv[])
           if (res[5] == 0xff) // SINGLE PATCH
           {
             decode(res,  2, infile);
-            decode_preamble( infile );
+            if (decode_preamble( infile )) {
+              printf("Error reading preamble!\n");
+              exit(1);
+            }
             decode(res,  1, infile);
             decode(res,  140, infile);
+            
             crc = crc16(res, 140);
   
-	            
-            assert_sequence( (char*) &crc, 2, infile, "CRC");
+	          assert_sequence( (char*) &crc, 2, infile, "CRC");
               
+            printf("\n");
             convert_127_to_155(sysex_155, res);
-            printf("Name:%.10s\n", &sysex_155[9*16+1]);
+            printhex(sysex_155, 156);
             p = fname + strlen( fname );
             strcpy( p, ".syx" );
             outfile = fopen( fname, "wb" );
             export_sysex_155(outfile, sysex_155);
           }
-          else if (res[5] == 0x00) // CARTRIDGE
+          else if (res[5] == 0x00)    // CART: 32 patches
           {
             int i, j;
             signed char sum;
@@ -408,32 +411,53 @@ int main(int argc, char *argv[])
             outfile = fopen( fname, "wb" );    
             fwrite(&SYSEX_HEADER_4096, sizeof(SYSEX_HEADER_4096), 1, outfile);
             sum=0;
-            for (i= 0; i<32; i++) {
-  
-              decode_preamble( infile );
+            // loop over 32 patches in a cart
+            res[21] = 0;
+            for (i= 0; res[21] != 0xff ; i++) {
+              
+              
+              if (decode_preamble( infile ))
+                  break;
+
               assert_sequence("\xa9" ,1, infile, "Frame start(a9)");  
           
-              
-              decode(res,  140, infile);
+              decode(res,  140, infile);  // 140 bytes, where the first 128 is the actual DX7 patch, the rest is Volca-specific settings.
               crc = crc16(res, 140);
-    
+  
               assert_sequence( (char*) &crc, 2, infile, "CRC");
               
+              //write out result
               fwrite(res, 128, 1, outfile);
+              
+              // do checksum calculations
               for(j=0; j<128;j++)
                 sum += res[j];
               convert_127_to_155(sysex_155, res);
               
-  
-              printf("%.10s\n", &sysex_155[9*16+1]);
+              // display patch name
+              printf("%2d:%.10s\n", i, &sysex_155[9*16+1]);
               decode_preamble( infile );
               decode(res,  1, infile);
-              decode(res,  128, infile);
+              decode(res,  128, infile);    // 128 bytes of KORG-specifics. byte 22 is the number of the patch, where 0xff if the last in the dump.
               
+              if (res[21] == 0x20)  { // number 32: this is first patch in the other 32-cart of a FM2 dump, so finish this file and prepare cart 2.
+                sum = (128 - (sum &0x7f)); 
+                fwrite(&sum, 1, 1, outfile);
+                fwrite(&SYSEX_FOOTER, sizeof(SYSEX_FOOTER), 1, outfile);
+                fclose(outfile);    
+                strcpy( fname, argv[fa] );
+                p = fname + strlen( fname );
+                strcpy( p, "_cart_2.syx" );
+                outfile = fopen( fname, "wb" );    
+                fwrite(&SYSEX_HEADER_4096, sizeof(SYSEX_HEADER_4096), 1, outfile);
+                sum=0;
+              }
+                         
             }  
             sum = (128 - (sum &0x7f)); 
             fwrite(&sum, 1, 1, outfile);
             fwrite(&SYSEX_FOOTER, sizeof(SYSEX_FOOTER), 1, outfile);
+            fclose(outfile);
             
             
           }            
